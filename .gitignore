@@ -8,9 +8,6 @@
 /sites/default/**/files
 /sites/default/**/private
 
-# Settings
-sites/default/settings.php
-
 # Patches
 PATCHES.txt
 
@@ -36,7 +33,8 @@ PATCHES.txt
 ######################
 .DS_Store*
 ehthumbs.db
-Icon
+Icon
+
 Thumbs.db
 ._*
 

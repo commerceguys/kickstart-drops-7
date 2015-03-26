@@ -8,9 +8,7 @@ dependencies[] = commerce_product_reference
 dependencies[] = physical
 core = 7.x
 
-
-; Information added by drush on 2014-11-20
-version = ""
+; Information added by drush on 2015-03-25
+version = "7.x-1.x-dev"
 project = "commerce_physical"
-datestamp = "1416496484"
-
+datestamp = "1427346733"

@@ -3,9 +3,7 @@ description = Defines fields (e.g. weight and dimensions) to support describing 
 package = Fields
 core = 7.x
 
-
-; Information added by drush on 2014-11-20
-version = ""
+; Information added by drush on 2015-03-25
+version = "7.x-1.x-dev"
 project = "physical"
-datestamp = "1416496477"
-
+datestamp = "1427346736"
