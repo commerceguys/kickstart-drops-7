@@ -1,0 +1,25 @@
+name = Commerce Login and Pay with Amazon
+description = Base module which provides integration with Login and Pay with Amazon.
+core = 7.x
+
+; Configuration path
+configure = admin/commerce/config/amazon-lpa
+
+dependencies[] = list
+dependencies[] = rules
+dependencies[] = commerce_cart
+dependencies[] = commerce_customer
+dependencies[] = commerce_payment
+dependencies[] = libraries
+files[] = includes/AmazonPayResponse.php
+files[] = includes/AmazonPayHttpCurl.php
+files[] = includes/AmazonPayIpnHandler.php
+files[] = includes/AmazonPayClient.php
+files[] = includes/AmazonLPA.php
+
+; Information added by Drupal.org packaging script on 2017-10-12
+version = "7.x-1.3"
+core = "7.x"
+project = "commerce_amazon_lpa"
+datestamp = "1507844960"
+

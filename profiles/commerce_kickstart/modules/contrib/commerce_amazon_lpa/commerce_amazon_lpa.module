@@ -1,0 +1,1212 @@
+<?php
+/**
+ * @file
+ * Amazon Payments LPA module file.
+ */
+
+/**
+ * Implements hook_help().
+ */
+function commerce_amazon_lpa_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#commerce_amazon_lpa':
+      return '<p>' . t("This module integrates Login and Pay with Amazon with Drupal and Drupal Commerce. For detailed information read the README.md in the module's folder..") . '</p>';
+  }
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function commerce_amazon_lpa_views_api() {
+  return array(
+    'api' => 3,
+  );
+}
+
+/**
+ * Implements hook_libraries_info().
+ */
+function commerce_amazon_lpa_libraries_info() {
+  return array(
+    'login-and-pay-with-amazon-sdk-php' => array(
+      'name' => 'Login and Pay with Amazon PHP SDK',
+      'vendor url' => 'https://github.com/amzn/login-and-pay-with-amazon-sdk-php',
+      'download url' => 'https://github.com/amzn/login-and-pay-with-amazon-sdk-php/releases',
+      'download file url' => 'https://github.com/amzn/login-and-pay-with-amazon-sdk-php/archive/2.1.0.zip',
+      'version arguments' => array(
+        'file' => 'composer.json',
+        'pattern' => '/"version": "(\d+\.\d+\.\d+)"/',
+      ),
+      'files' => array(
+        'php' => array(
+          'PayWithAmazon/Client.php',
+          'PayWithAmazon/HttpCurl.php',
+          'PayWithAmazon/Interface.php',
+          'PayWithAmazon/IpnHandler.php',
+          'PayWithAmazon/Regions.php',
+          'PayWithAmazon/ResponseParser.php',
+        ),
+      ),
+    ),
+    'amazon-pay-sdk-php' => array(
+      'name' => 'Login and Pay with Amazon PHP SDK',
+      'vendor url' => 'https://github.com/amzn/amazon-pay-sdk-php',
+      'download url' => 'https://github.com/amzn/amazon-pay-sdk-php/releases',
+      'download file url' => 'https://github.com/amzn/amazon-pay-sdk-php/archive/3.1.0.zip',
+      'version arguments' => array(
+        'file' => 'composer.json',
+        'pattern' => '/"version": "(\d+\.\d+\.\d+)"/',
+      ),
+      'files' => array(
+        'php' => array(
+          'AmazonPay/Client.php',
+          'AmazonPay/ClientInterface.php',
+          'AmazonPay/HttpCurl.php',
+          'AmazonPay/HttpCurlInterface.php',
+          'AmazonPay/IpnHandler.php',
+          'AmazonPay/IpnHandlerInterface.php',
+          'AmazonPay/Regions.php',
+          'AmazonPay/ResponseInterface.php',
+          'AmazonPay/ResponseParser.php',
+        ),
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_library().
+ */
+function commerce_amazon_lpa_library() {
+  $items = array();
+
+  switch (variable_get('commerce_amazon_lpa_region', 'US')) {
+    case 'US':
+      $url = (AmazonLPA::is_sandbox()) ?
+        'https://static-na.payments-amazon.com/OffAmazonPayments/us/sandbox/js/Widgets.js'
+        :
+        'https://static-na.payments-amazon.com/OffAmazonPayments/us/js/Widgets.js';
+      break;
+
+    case 'UK':
+      $url = (AmazonLPA::is_sandbox()) ?
+        'https://static-eu.payments-amazon.com/OffAmazonPayments/uk/sandbox/lpa/js/Widgets.js'
+        :
+        'https://static-eu.payments-amazon.com/OffAmazonPayments/uk/lpa/js/Widgets.js';
+      break;
+
+    case 'DE':
+      $url = (AmazonLPA::is_sandbox()) ?
+        'https://static-eu.payments-amazon.com/OffAmazonPayments/de/sandbox/lpa/js/Widgets.js'
+        :
+        'https://static-eu.payments-amazon.com/OffAmazonPayments/de/lpa/js/Widgets.js';
+      break;
+
+    default:
+      throw new Exception(t('Region not supported for JavaScript widgets'));
+  }
+
+  $items['amazon_widgets'] = array(
+    'title' => t('Commerce Checkout by Amazon library'),
+    'version' => '1.0',
+    'js' => array(
+      drupal_get_path('module', 'commerce_amazon_lpa') . '/js/commerce-amazon-lpa.js' => array('type' => 'file'),
+      array(
+        'type' => 'setting',
+        'data' => array(
+          'AmazonLPA' => array(
+            'clientId' => variable_get('commerce_amazon_lpa_client_id', ''),
+            'merchantId' => variable_get('commerce_amazon_lpa_merchant_id', ''),
+            'widgetsJsUrl' => $url,
+            'checkoutUrl' => url('checkout', array('absolute' => TRUE)),
+            'langcode' => variable_get('commerce_amazon_lpa_langcode', AmazonLPA::get_region_langcode(variable_get('commerce_amazon_lpa_region'))),
+            'buttonOptions' => array(
+              'paySize' => variable_get('commerce_amazon_lpa_pay_button_size', AmazonLPA::BUTTON_SIZE_MEDIUM),
+              'payStyle' => variable_get('commerce_amazon_lpa_pay_button_style', AmazonLPA::BUTTON_COLOR_GOLD),
+              'loginSize' => variable_get('commerce_amazon_lpa_login_button_size', AmazonLPA::BUTTON_SIZE_MEDIUM),
+              'loginStyle' => variable_get('commerce_amazon_lpa_login_button_style', AmazonLPA::BUTTON_COLOR_GOLD),
+            ),
+            'addressBookOptions' => array(
+              'displayMode' => 'edit',
+            ),
+            'walletOptions' => array(
+              'displayMode' => 'edit',
+            ),
+            'loginOptions' => array(
+              'popup' => variable_get('commerce_amazon_lpa_popup', 'popup') == 'popup',
+            ),
+          ),
+        ),
+      ),
+    ),
+    'dependencies' => array(array('system', 'jquery')),
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_amazon_lpa_menu() {
+  $items = array();
+
+  // Checkout by Amazon settings.
+  $items['admin/commerce/config/amazon-lpa'] = array(
+    'title' => 'Amazon Pay and Login with Amazon',
+    'description' => 'Manage Amazon Pay and Login with Amazon settings.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_amazon_lpa_settings_form'),
+    'file' => 'includes/commerce_amazon_lpa.admin.inc',
+    'access arguments' => array('configure store'),
+  );
+
+  $items['checkout/amazon'] = array(
+    'type' => MENU_CALLBACK,
+    'page callback' => 'commerce_amazon_lpa_checkout',
+    'access arguments' => array('access checkout'),
+    'file' => 'includes/commerce_amazon_lpa.pages.inc',
+  );
+
+  // Amazon IPN callback.
+  $items['commerce-amazon-lpa/ipn'] = array(
+    'title' => 'IPN callback',
+    'page callback' => 'commerce_amazon_lpa_process_ipn',
+    // Allow all access since this is an API callback.
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+    'file' => 'includes/commerce_amazon_lpa.pages.inc',
+  );
+
+  $items['user/login/amazon'] = array(
+    'title' => 'You are being logged in',
+    'page callback' => 'commerce_amazon_lpa_login_callback',
+    'access callback' => 'commerce_amazon_lpa_login_callback_access',
+    'type' => MENU_CALLBACK,
+    'file' => 'includes/commerce_amazon_lpa.pages.inc',
+  );
+
+  // Payment tab on orders.
+  $items['admin/commerce/orders/%commerce_order/payment/amazon-payments-authorize'] = array(
+    'title' => 'Add authorization',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_amazon_lpa_authorize_form', 3),
+    'access callback' => 'commerce_amazon_lpa_payment_transaction_access',
+    'access arguments' => array(3, NULL, 'authorize'),
+    'type' => MENU_LOCAL_ACTION,
+    'weight' => 10,
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+    'file' => 'includes/commerce_amazon_lpa.admin.inc',
+  );
+
+  $items['admin/commerce/orders/%commerce_order/payment/%commerce_payment_transaction/amazon-payments-authorize'] = array(
+    'title' => 'Authorize',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_amazon_lpa_authorize_form', 3, 5),
+    'access callback' => 'commerce_amazon_lpa_payment_transaction_access',
+    'access arguments' => array(3, 5, 'authorize'),
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'context' => MENU_CONTEXT_INLINE,
+    'weight' => 2,
+    'file' => 'includes/commerce_amazon_lpa.admin.inc',
+  );
+
+  $items['admin/commerce/orders/%commerce_order/payment/%commerce_payment_transaction/amazon-payments-capture'] = array(
+    'title' => 'Capture',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_amazon_lpa_capture_form', 3, 5),
+    'access callback' => 'commerce_amazon_lpa_payment_transaction_access',
+    'access arguments' => array(3, 5, 'capture'),
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'context' => MENU_CONTEXT_INLINE,
+    'weight' => 2,
+    'file' => 'includes/commerce_amazon_lpa.admin.inc',
+  );
+  // Add a menu item for refunding settled transactions.
+  $items['admin/commerce/orders/%commerce_order/payment/%commerce_payment_transaction/amazon-payments-refund'] = array(
+    'title' => 'Refund',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_amazon_lpa_refund_form', 3, 5),
+    'access callback' => 'commerce_amazon_lpa_payment_transaction_access',
+    'access arguments' => array(3, 5, 'refund'),
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'context' => MENU_CONTEXT_INLINE,
+    'weight' => 4,
+    'file' => 'includes/commerce_amazon_lpa.admin.inc',
+  );
+
+  // Add a menu item for refunding settled transactions.
+  $items['admin/commerce/orders/%commerce_order/payment/%commerce_payment_transaction/amazon-payments-close'] = array(
+    'title' => 'Close',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_amazon_lpa_close_form', 3, 5),
+    'access callback' => 'commerce_amazon_lpa_payment_transaction_access',
+    'access arguments' => array(3, 5, 'close'),
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'context' => MENU_CONTEXT_INLINE,
+    'weight' => 5,
+    'file' => 'includes/commerce_amazon_lpa.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Access callback for Amazon Payments payment transaction operations.
+ *
+ * @param object $order
+ *   The order object.
+ * @param object $transaction
+ *   The transaction object.
+ * @param string $type
+ *   The type of transaction action to perform. One of "capture", "refund", or
+ *   "close".
+ *
+ * @return bool
+ *   TRUE or FALSE, if allowed.
+ */
+function commerce_amazon_lpa_payment_transaction_access($order, $transaction, $type) {
+  if (!$transaction && $type == 'authorize') {
+    $balance = commerce_payment_order_balance($order);
+    if ($balance['amount'] > 0) {
+      $authorization = commerce_amazon_lpa_get_order_authorization($order->order_id);
+      return empty($authorization);
+    }
+    else {
+      return FALSE;
+    }
+  }
+
+  $amazon_transaction_type = $transaction->data['commerce_amazon_lpa']['transaction_type'];
+  switch ($type) {
+    case 'authorize':
+      // If it's not pending, then we cannot touch it.
+      if ($transaction->status != COMMERCE_PAYMENT_STATUS_PENDING || $amazon_transaction_type != 'authorization') {
+        return FALSE;
+      }
+
+      return (empty($transaction->remote_id) && empty($transaction->remote_status));
+
+    case 'capture':
+      // If it's not pending, then we cannot touch it.
+      if ($transaction->status != COMMERCE_PAYMENT_STATUS_PENDING || $amazon_transaction_type != 'authorization') {
+        return FALSE;
+      }
+
+      // We have to wait for IPN to mark an authorization open.
+      if ($transaction->remote_status != 'Open') {
+        return FALSE;
+      }
+
+      if (!empty($transaction->data['commerce_amazon_lpa']['environment']) && $transaction->data['commerce_amazon_lpa']['environment'] == AmazonLPA::ENV_LIVE) {
+        $acceptable_days = 30;
+      }
+      else {
+        $acceptable_days = 2;
+      }
+      // If we're out of time, this will be false.
+      return ($transaction->created + 86400 * $acceptable_days) > time();
+
+    case 'refund':
+      // Only valid, open captures can be refunded.
+      return ($amazon_transaction_type == 'capture'
+        && $transaction->status == COMMERCE_PAYMENT_STATUS_SUCCESS
+        && $transaction->remote_status == 'Completed');
+
+    case 'close':
+      // We can only close pending authorizations.
+      return isset($transaction->data['commerce_amazon_lpa']['auth_reference_id'])
+        && $transaction->status == COMMERCE_PAYMENT_STATUS_PENDING;
+
+    default:
+      return FALSE;
+  }
+}
+
+/**
+ * Implements hook_permission().
+ */
+function commerce_amazon_lpa_permission() {
+  $permissions = array(
+    'access login and pay with amazon' => array(
+      'title' => t('Login and Pay with Amazon access'),
+      'description' => t('Set Login and Pay with Amazon (button) availabilty.'),
+    ),
+    'access access login and pay with debug' => array(
+      'title' => t('Access the Login and Pay with Amazon debug log'),
+    ),
+  );
+
+  return $permissions;
+}
+
+/**
+ * Implements hook_form_alter().
+ *
+ * Move hook_form_alter() to the end of the list.
+ * Needed for checkout button on cart page.
+ */
+function commerce_amazon_lpa_module_implements_alter(&$implementations, $hook) {
+  if ($hook == 'form_alter') {
+    $group = $implementations['commerce_amazon_lpa'];
+    unset($implementations['commerce_amazon_lpa']);
+    $implementations['commerce_amazon_lpa'] = $group;
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function commerce_amazon_lpa_theme($existing, $type, $theme, $path) {
+  return array(
+    'commerce_amazon_login_button' => array(
+      'variables' => array(
+        'html_id' => 'AmazonLoginButton',
+        'button_parameter' => 'LwA',
+      ),
+      'file' => 'commerce_amazon_lpa.theme.inc',
+    ),
+    'commerce_amazon_payment_button' => array(
+      'variables' => array('order_id' => NULL, 'html_id' => 'AmazonPaymentButton'),
+      'file' => 'commerce_amazon_lpa.theme.inc',
+    ),
+    'commerce_amazon_payment_button__summary_link' => array(
+      'base hook' => 'commerce_amazon_payment_button',
+      'file' => 'commerce_amazon_lpa.theme.inc',
+    ),
+    'commerce_amazon_addressbook_widget' => array(
+      'variables' => array('html_id' => NULL, 'order_reference_id' => ''),
+      'file' => 'commerce_amazon_lpa.theme.inc',
+    ),
+    'commerce_amazon_wallet_widget' => array(
+      'variables' => array('html_id' => 'walletWidgetDiv', 'order_reference_id' => ''),
+      'file' => 'commerce_amazon_lpa.theme.inc',
+    ),
+  );
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function commerce_amazon_lpa_form_alter(&$form, &$form_state, $form_id) {
+  if (!AmazonLPA::is_configured() || AmazonLPA::is_hidden()) {
+    // Back out if Amazon LPA not configured.
+    return;
+  }
+
+  if (strpos($form_id, 'views_form_commerce_cart_form_') === 0) {
+    $form['actions']['amazon_lpa'] = array(
+      '#markup' => theme('commerce_amazon_payment_button', array(
+        'order_id' => $form_state['order']->order_id,
+        'html_id' => 'amazon_lpa_cart_pay',
+      )),
+    );
+    if (commerce_amazon_lpa_order_has_restricted_products($form_state['order'])) {
+      $form['actions']['amazon_lpa']['#access'] = FALSE;
+      $form['actions']['amazon_lpa']['#suffix'] = t('Your order contains a product which cannot be paid for through Amazon Payments');
+    }
+    if (variable_get('commerce_amazon_lpa_checkout_strategy', AmazonLPA::STRATEGY_NORMAL) == AmazonLPA::STRATEGY_AMAZON) {
+      $form['actions']['checkout']['#access'] = FALSE;
+    }
+    else {
+      $form['actions']['checkout']['#submit'][] = 'commerce_amazon_lpa_checkout_form_cancel_submit';
+    }
+  }
+
+  // The following items react on altering the checkout form to bring in a
+  // parallel checkout process with Amazon. We cannot use form_FORM_ID_alter
+  // because panes may not be on their default pages.
+  if (strpos($form_id, 'commerce_checkout_form_') === FALSE || !isset($form_state['order']->data['commerce_amazon_lpa'])) {
+    // Since this involves a lot of logic, exit early.
+    return;
+  }
+
+  if (commerce_amazon_lpa_order_has_restricted_products($form_state['order'])) {
+    drupal_set_message(t('Your order contains a product which cannot be paid for through Amazon Payments'));
+    return;
+  }
+
+  // Logic on if this is an Amazon order.
+  $api = AmazonLPA::instance();
+
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $form_state['order']);
+  $contract_id = $order_wrapper->{AmazonLPA::REFERENCE_ID_FIELD}->value();
+
+  // Send the order ID to JavaScript.
+  $form['#attached']['js'][] = array(
+    'data' => array(
+      'AmazonLPA' => array(
+        'orderId' => $form_state['order']->order_id,
+        'orderReferenceId' => ($contract_id) ? $contract_id : NULL,
+        'isShippable' => commerce_amazon_lpa_order_is_shippable($form_state['order']),
+      ),
+    ),
+    'type' => 'setting',
+  );
+
+  // Review table modification.
+  if (isset($form['checkout_review'])) {
+    // User hasn't been able to select billing yet.
+    unset($form['checkout_review']['review']['#data']['customer_profile_billing']);
+    unset($form['checkout_review']['review']['#data']['customer_profile_shipping']);
+  }
+
+  // Modify billing and shipping profile types.
+  $profile_types = array('billing', 'shipping');
+  foreach ($profile_types as $profile_type) {
+    $name = 'customer_profile_' . $profile_type;
+    // First check to see if the profile's form is available. Exit early.
+    if (!isset($form[$name])) {
+      continue;
+    }
+
+    // Remove copy feature.
+    if (isset($form[$name]['commerce_customer_profile_copy'])) {
+      unset($form[$name]['commerce_customer_profile_copy']);
+    }
+    foreach (element_children($form[$name]) as $child_key) {
+      $form[$name][$child_key]['#access'] = FALSE;
+    }
+    $form[$name]['#access'] = FALSE;
+  }
+
+  // Modify payment form.
+  if (isset($form['commerce_payment'])) {
+    $form['commerce_payment']['payment_method']['#access'] = FALSE;
+    $form['commerce_payment']['payment_method']['#value'] = 'commerce_amazon_login_and_pay|commerce_payment_commerce_amazon_login_and_pay';
+    $form['commerce_payment']['payment_method']['#default_value'] = 'commerce_amazon_login_and_pay|commerce_payment_commerce_amazon_login_and_pay';
+    // There isn't a way to tell Commerce Payment to use a default payment
+    // gateway, so we rebuild the details form here.
+    $payment_method = commerce_payment_method_load('commerce_amazon_login_and_pay');
+    $callback = commerce_payment_method_callback($payment_method, 'submit_form');
+    if (is_callable($callback)) {
+      $form['commerce_payment']['payment_details'] = $callback($payment_method, array(), array(), $form_state['order']);
+    }
+  }
+
+  // Hide the back button when the user has an invalid payment method.
+  if ($form_state['checkout_page']['page_id'] == 'review') {
+    if ($api->getOrderReferenceId($order_wrapper)) {
+      $amazon_order_reference = $api->getOrderRef($order_wrapper);
+      if ($amazon_order_reference['OrderReferenceStatus']['State'] == 'Suspended') {
+        $form['buttons']['back']['#access'] = FALSE;
+      }
+    }
+  }
+}
+
+/**
+ * Removes Login and Pay with Amazon from a canceled checkout order.
+ *
+ * @param array $form
+ *   Form array.
+ * @param array $form_state
+ *   Form state.
+ */
+function commerce_amazon_lpa_checkout_form_cancel_submit($form, &$form_state) {
+  unset($form_state['order']->data['commerce_amazon_lpa']);
+  commerce_order_save($form_state['order']);
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function commerce_amazon_lpa_form_user_login_alter(&$form, &$form_state, $form_id) {
+  if (AmazonLPA::get_operation_mode() == AmazonLPA::OPERATION_MODE_LOGIN_AND_PAY) {
+    $form['amazon_lpa'] = array(
+      '#weight' => 200,
+      '#theme' => 'commerce_amazon_login_button',
+    );
+  }
+}
+
+/**
+ * Access callback for Amazon Login.
+ *
+ * Validates Login and Pay is configured and proper cookies exist.
+ *
+ * @return bool
+ *   TRUE or FALSE if allowed.
+ */
+function commerce_amazon_lpa_login_callback_access() {
+
+  if (!AmazonLPA::is_configured()) {
+    return FALSE;
+  }
+
+  $popup = variable_get('commerce_amazon_lpa_popup', 'popup');
+  if ($popup == 'popup') {
+    return (isset($_COOKIE['amazon_Login_accessToken']));
+  }
+  elseif ($popup == 'redirect') {
+    return TRUE;
+  }
+  else {
+    return FALSE;
+  }
+}
+
+/**
+ * Logs an authenticated Amazon user in and registers authmap.
+ */
+function commerce_amazon_lpa_external_login() {
+  $api = new AmazonLPA();
+
+  try {
+    $api_user = $api->getUserInfo();
+    // Check if this user exists and is not an external user.
+    $existing = user_load_by_mail($api_user['email']);
+    if ($existing && !user_external_load($api_user['email'])) {
+      // Add authmap.
+      user_set_authmaps($existing, array('authname_commerce_amazon_lpa' => $api_user['email']));
+      watchdog('commerce_amazon_lpa', 'Auth map added for %name.', array('%name' => $existing->name));
+      // Log user in.
+      $form_state['uid'] = $existing->uid;
+
+      rules_invoke_all('commerce_amazon_lpa_registration', $existing);
+
+      user_login_submit(array(), $form_state);
+    }
+    else {
+      // Register or log the user in.
+      user_external_login_register($api_user['email'], 'commerce_amazon_lpa');
+      watchdog('commerce_amazon_lpa', 'User %name registered via Amazon login.', array('%name' => $GLOBALS['user']->name));
+
+      rules_invoke_all('commerce_amazon_lpa_registration', $GLOBALS['user']);
+    }
+  }
+  catch (Exception $e) {
+    watchdog('commerce_amazon_lpa', 'Unable to authenticate user due to bad access token', array(), WATCHDOG_ERROR);
+  }
+}
+
+/**
+ * Implements hook_user_logout().
+ *
+ * @see user_cookie_delete()
+ */
+function commerce_amazon_lpa_user_logout($account) {
+  setcookie('amazon_Login_accessToken', '', REQUEST_TIME - 3600, '/');
+  setcookie('amazon_Login_state_cache', '', REQUEST_TIME - 3600, '/');
+}
+
+/**
+ * Implements hook_user_presave().
+ */
+function commerce_amazon_lpa_user_presave(&$edit, $account, $category) {
+  $api = new AmazonLPA();
+  // user_external_login_register passes anonymous user to $account.
+  if (!isset($edit['mail']) && $amazon_user_info = $api->getUserInfo()) {
+    $edit['mail'] = $edit['name'];
+    $edit['commerce_amazon_lpa_user_id'][LANGUAGE_NONE][0]['value'] = $amazon_user_info['user_id'];
+  }
+}
+
+/**
+ * Implements hook_cron().
+ */
+function commerce_amazon_lpa_cron() {
+  // If in ERP mode, do not run.
+  if (AmazonLPA::is_erp_mode()) {
+    return;
+  }
+
+  $api = AmazonLPA::instance();
+
+  // Query pending payment transactions.
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'commerce_payment_transaction')
+    ->propertyCondition('payment_method', 'commerce_amazon_login_and_pay')
+    ->propertyCondition('status', COMMERCE_PAYMENT_STATUS_PENDING);
+  $results = $query->execute();
+  if (!empty($results)) {
+    $transactions = entity_load('commerce_payment_transaction', array_keys($results['commerce_payment_transaction']));
+    foreach ($transactions as $transaction) {
+      try {
+        $type = $transaction->data['commerce_amazon_lpa']['transaction_type'];
+
+        if ($type == 'authorization') {
+          $data = $api->getAuthorizationDetails($transaction->remote_id);
+          $api->processAuthorizeTransaction($transaction, $data);
+        }
+        elseif ($type == 'capture') {
+          $data = $api->getCaptureDetails($transaction->remote_id);
+          $api->processCaptureTransaction($transaction, $data);
+        }
+        elseif ($type == 'refund') {
+          $data = $api->getRefundDetails($transaction->remote_id);
+          $api->processRefundTransaction($transaction, $data);
+        }
+      }
+      catch (Exception $e) {
+        watchdog_exception('commerce_amazon_lpa', $e, $e->getMessage());
+        watchdog('commerce_amazon_lpa', 'Failed to process @transaction', array('@transaction' => $transaction->remote_id), WATCHDOG_ERROR);
+      }
+    }
+  }
+}
+
+
+/**
+ * Converts an Amazon address into a Commerce Customer profile.
+ *
+ * @param object $order
+ *   The order to attach the profile to. The generated profile will be attached.
+ * @param string $profile_type
+ *   The profile type to create. Usually "billing" or "shipping".
+ * @param array $amazon_address
+ *   The Amazon address data structure included with the AuthorizationDetails.
+ *
+ * @return object
+ *   The created customer profile.
+ *
+ * @throws \EntityMetadataWrapperException
+ *   A wrapper exception.
+ */
+function commerce_amazon_lpa_amazon_address_to_customer_profile($order, $profile_type, $amazon_address) {
+  $profile_field = 'commerce_customer_' . $profile_type;
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+
+  if (!empty($order->{$profile_field})) {
+    $customer_profile = $order_wrapper->{$profile_field}->value();
+  }
+  else {
+    $customer_profile = commerce_customer_profile_new($profile_type, $order->uid);
+    // Save the new customer profile.
+    commerce_customer_profile_save($customer_profile);
+  }
+  $address_state = NULL;
+  if (!empty($amazon_address['State'])) {
+    $address_state = $amazon_address['State'];
+  }
+  elseif (!empty($amazon_address['StateOrProvinceCode'])) {
+    $address_state = $amazon_address['StateOrProvinceCode'];
+  }
+  elseif (!empty($amazon_address['StateOrRegion'])) {
+    $address_state = $amazon_address['StateOrRegion'];
+  }
+
+  $address_thoroughfare = !empty($amazon_address['AddressLine1']) ? $amazon_address['AddressLine1'] : '';
+  $address_premise = !empty($amazon_address['AddressLine2']) ? $amazon_address['AddressLine2'] : '';
+
+  $customer_profile_wrapper = entity_metadata_wrapper('commerce_customer_profile', $customer_profile);
+  $customer_profile_wrapper->commerce_customer_address->name_line = isset($amazon_address['Name']) ? $amazon_address['Name'] : '';
+  $customer_profile_wrapper->commerce_customer_address->country = $amazon_address['CountryCode'];
+  $customer_profile_wrapper->commerce_customer_address->locality = isset($amazon_address['City']) ? $amazon_address['City'] : '';
+  $customer_profile_wrapper->commerce_customer_address->administrative_area = $address_state;
+  $customer_profile_wrapper->commerce_customer_address->postal_code = isset($amazon_address['PostalCode']) ? $amazon_address['PostalCode'] : '';
+  $customer_profile_wrapper->commerce_customer_address->thoroughfare = $address_thoroughfare;
+  $customer_profile_wrapper->commerce_customer_address->premise = $address_premise;
+  $customer_profile->commerce_customer_address[LANGUAGE_NONE][0]['data'] = serialize($amazon_address);
+  // Save the customer profile.
+  commerce_customer_profile_save($customer_profile);
+
+  // If Addressbook is enabled, make sure this is the default.
+  // This really only matters on instances like CK2 that display the information
+  // directly to the user and they may see the original partial profile before
+  // the order is confirmed.
+  if (module_exists('commerce_addressbook')) {
+    commerce_addressbook_set_default_profile($customer_profile);
+  }
+
+  $order_wrapper->{$profile_field} = $customer_profile->profile_id;
+
+  return $customer_profile;
+}
+
+/**
+ * Return an entity object based on an Amazon Reference ID.
+ *
+ * @param string $id
+ *   The ID Amazon assigns an order.
+ *
+ * @return mixed
+ *   The order, if found, NULL otherwise.
+ */
+function commerce_amazon_lpa_order_from_amazon_reference_id($id) {
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'commerce_order', '=')
+    ->fieldCondition(AmazonLPA::REFERENCE_ID_FIELD, 'value', $id);
+  $result = $query->execute();
+
+  if (empty($result)) {
+    return NULL;
+  }
+  else {
+    $entity_stub = reset($result['commerce_order']);
+    return commerce_order_load($entity_stub->order_id);
+  }
+}
+
+/**
+ * Sets the status and remote status of a transaction from Amazon state.
+ *
+ * @param object $transaction
+ *   The transaction to set the state on.
+ * @param array $state
+ *   The status that comes from Amazon.
+ *
+ * @throws \Exception
+ *   Exception if there was an invalid state.
+ */
+function commerce_amazon_lpa_payment_state_to_status($transaction, array $state) {
+  $transaction->remote_status = $state['State'];
+
+  switch ($state['State']) {
+    case 'Completed':
+      $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+      break;
+
+    case 'Declined':
+      $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+      break;
+
+    case 'Open':
+      $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
+      break;
+
+    case 'Pending':
+      $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
+      break;
+
+    case 'Closed':
+      if ($state['ReasonCode'] == 'MaxCapturesProcessed') {
+        $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+      }
+      else {
+        $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+      }
+      break;
+
+    default:
+      throw new Exception(t('Unexpected payment object state (@state) returned from Login and Pay with Amazon API', array(
+        '@state' => $state,
+      )));
+  }
+}
+
+/**
+ * Writes a debug log message.
+ *
+ * @param string $message
+ *    The message parameter to send to watchdog().
+ * @param array $variables
+ *    The variables parameter to send to watchdog().
+ * @param int $type
+ *    The watchdog severity, defaults to WATCHDOG_DEBUG.
+ */
+function commerce_amazon_lpa_add_debug_log($message, $variables = array(), $type = WATCHDOG_DEBUG) {
+  if (variable_get('commerce_amazon_lpa_log_handling', FALSE) == 1) {
+    watchdog('commerce_amazon_lpa', $message, $variables, $type);
+  }
+}
+
+/**
+ * Implements hook_field_access().
+ */
+function commerce_amazon_lpa_field_access($op, $field, $entity_type, $entity, $account) {
+  // The Amazon User ID field should only be populated when first login happens.
+  if ($field['field_name'] == 'commerce_amazon_lpa_user_id' && $op == 'edit') {
+    return FALSE;
+  }
+
+  return NULL;
+}
+
+/**
+ * Creates or appends a transaction message based on the returned data.
+ *
+ * @param object $transaction
+ *   The transaction on which to create or append the message.
+ * @param string $type
+ *   The type of data structure provided. Usually "authorization", "refund", or
+ *   "capture".
+ * @param array $data
+ *   The Details->*Status field from the original message.
+ */
+function commerce_amazon_lpa_transaction_message_update_data($transaction, $type, $data) {
+  $message_variables = array(
+    '@state_' . REQUEST_TIME => $data['State'],
+  );
+  if (isset($data['ReasonCode'])) {
+    $message_variables['@reason_code_' . REQUEST_TIME] = commerce_amazon_lpa_reason_code_message($type, $data['ReasonCode']);
+  }
+  $transaction->message = '@state_' . REQUEST_TIME . (isset($data['ReasonCode']) ? ' (@reason_code_' . REQUEST_TIME . ')' : '');
+  $transaction->message_variables = $message_variables;
+}
+
+/**
+ * Gets the payment authorization for a given Order ID.
+ *
+ * @param int $order_id
+ *   The order ID.
+ *
+ * @return bool|object
+ *   FALSE if no transaction is found. Otherwise the transaction that holds the
+ *   authorization for an order.
+ */
+function commerce_amazon_lpa_get_order_authorization($order_id) {
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'commerce_payment_transaction')
+    ->propertyCondition('order_id', $order_id)
+    ->propertyCondition('status', array(COMMERCE_PAYMENT_STATUS_FAILURE, COMMERCE_PAYMENT_STATUS_SUCCESS), 'NOT IN')
+    ->propertyOrderBy('created', 'DESC');
+  $result = $query->execute();
+
+  if (!empty($result)) {
+    $transactions = commerce_payment_transaction_load_multiple(array_keys($result['commerce_payment_transaction']));
+    foreach ($transactions as $transaction) {
+      // Check the authorization ID.
+      if (!empty($transaction->data['commerce_amazon_lpa']['auth_reference_id'])) {
+        return $transaction;
+      }
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Loads a payment transaction based on Amazon Payments remote ID.
+ *
+ * @param string $remote_id
+ *   The remote Amazon Payments reference ID.
+ *
+ * @return bool|object
+ *   False is transaction does not exist, other wise the payment transaction.
+ */
+function commerce_amazon_lpa_remote_payment_transaction_load($remote_id) {
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'commerce_payment_transaction')
+        ->propertyCondition('remote_id', $remote_id);
+  $result = $query->execute();
+
+  if (!empty($result)) {
+    $transactions = commerce_payment_transaction_load_multiple(array_keys($result['commerce_payment_transaction']));
+    return reset($transactions);
+  }
+
+  return FALSE;
+}
+
+/**
+ * Returns a user-friendly explanation for a given reason code.
+ *
+ * @param string $kind
+ *   One of 'authorization', 'refund', or 'capture'.
+ * @param null|string $code
+ *   The code to return. NULL to return all codes.
+ *
+ * @return string
+ *   The reason message. If an invalid message kind is provided, a blank string
+ *   will be returned. If a code is provided, but no reason message is found
+ *   "Unknown reason." will be returned.
+ */
+function commerce_amazon_lpa_reason_code_message($kind, $code = NULL) {
+  $codes = array(
+    'authorization' => array(
+      'ExpiredUnused' => t('The authorization has been in the Open state for 30 days (two days for Sandbox) and you did not submit any captures against it.'),
+      'MaxCapturesProcessed' => t('You have already captured the full amount of the authorization. Amazon allows only one capture per authorization.'),
+      'AmazonClosed' => t('Amazon has closed the authorization object due to problems with your account.'),
+      'OrderReferenceCanceled' => t('The order reference was canceled causing all open authorizations to be canceled.'),
+      'SellerClosed' => t('You have explicitly closed this authorization.'),
+      'InvalidPaymentMethod' => t('There were problems with the payment method. You should contact your buyer and have them update their payment method using the Amazon Payments website.'),
+      'AmazonRejected' => t('Amazon has rejected the authorization. You should retry the authorization only if the order reference is in the Open state.'),
+      'ProcessingFailure' => t('Amazon could not process the transaction due to an internal processing error. You should retry the authorization only if the order reference is in the Open state.'),
+      'TransactionTimedOut' => t('In asynchronous mode, indicates that the Authorize operation call was not processed within the default timeout period of 24 hours or within the time period specified by you in the TransactionTimeout request parameter. In synchronous mode, indicates that Amazon could not process your request within 8 seconds. If you are observing a high number of declines due to this reason code, try adjusting the timeout value in asynchronous mode, or consider using asynchronous mode if you are using synchronous mode. An alternate approach for handling this error in synchronous mode is to retry the transaction in asynchronous mode.'),
+    ),
+    'capture' => array(
+      'AmazonRejected' => t('Amazon has rejected the capture. You should only retry the capture if the authorization is in the Open state.'),
+      'ProcessingFailure' => t('Amazon could not process the transaction due to an internal processing error. You should only retry the capture if the authorization is in the Open state. Otherwise, you should request a new authorization and then call Capture on it.'),
+      'MaxAmountRefunded' => t('You have already refunded the following amounts, including any A-to-z claims and charge-backs that you were responsible for:'),
+      'MaxRefundsProcessed' => t('You have already submitted 10 refunds for this Capture object.'),
+      'AmazonClosed' => t("Amazon has closed the capture due to a problem with your account or with the buyer's account."),
+    ),
+    'refund' => array(
+      'AmazonRejected' => t('Amazon has rejected the refund. You should issue a refund to the buyer in an alternate manner (for example, a gift card or store credit).'),
+      'ProcessingFailure' => t('Amazon could not process the transaction due to an internal processing error or because the buyer has already received a refund from an A-to-z claim or a chargeback. You should only retry the refund if the Capture object is in the Completed state. Otherwise, you should refund the buyer in an alternative way (for example, a store credit or a check).'),
+    ),
+  );
+  $kind = strtolower($kind);
+  if (!in_array($kind, array_keys($codes))) {
+    return '';
+  }
+  if ($code !== NULL) {
+    if (array_key_exists($code, $codes[$kind])) {
+      return $codes[$kind][$code];
+    }
+    return t('Unknown reason.');
+  }
+  return $codes[$kind];
+}
+
+/**
+ * Implements hook_form_alter().
+ *
+ * @param $form
+ *   The form to alter.
+ * @param $form_state
+ *   The form's state array.
+ */
+function commerce_amazon_lpa_form_commerce_order_ui_order_form_alter(&$form, $form_state) {
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $form_state['commerce_order']);
+  $existing_reference_id = AmazonLPA::instance()->getOrderReferenceId($order_wrapper);
+  if ($existing_reference_id) {
+    foreach (array('commerce_customer_billing', 'commerce_customer_shipping') as $customer_profile_field) {
+      if (isset($form[$customer_profile_field])) {
+        $form[$customer_profile_field]['#disabled'] = TRUE;
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_commerce_amazon_lpa_request_params_alter().
+ */
+function commerce_amazon_lpa_commerce_amazon_lpa_request_params_alter(array &$params, $type, $data) {
+  // We must be in sandbox, and have simulation turned on to alter the params
+  // and set simulation messages.
+  $simulation_code = variable_get('commerce_amazon_lpa_simulation', '_none');
+  if (!AmazonLPA::is_sandbox() || $simulation_code == '_none') {
+    return;
+  }
+  // Do not run simulations during IPN.
+  if (isset($_SERVER['HTTP_X_AMZ_SNS_MESSAGE_TYPE'])) {
+    return;
+  }
+
+  switch ($type) {
+    case 'authorize':
+      switch ($simulation_code) {
+        case 'Authorizations_InvalidPaymentMethod':
+          $params['seller_authorization_note'] = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"InvalidPaymentMethod", "PaymentMethodUpdateTimeInMins":1}}';
+          break;
+
+        case 'Authorizations_AmazonRejected':
+          $params['seller_authorization_note'] = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}}';
+          break;
+
+        case 'Authorizations_AmazonClosed':
+          $params['seller_authorization_note'] = '{"SandboxSimulation": {"State":"Closed", "ReasonCode":"AmazonClosed"}} ';
+          break;
+
+        case 'Authorizations_TransactionTimedOut':
+          $params['seller_authorization_note'] = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"TransactionTimedOut"}}';
+          break;
+
+        case 'Captures_Pending':
+          if (AmazonLPA::get_capture_mode() == AmazonLPA::CAPTURE_AUTH_CAPTURE) {
+            $params['seller_authorization_note'] = '{"SandboxSimulation": {"State":"Pending"}}';
+          }
+          break;
+
+        case 'Captures_AmazonRejected':
+          if (AmazonLPA::get_capture_mode() == AmazonLPA::CAPTURE_AUTH_CAPTURE) {
+            $params['seller_authorization_note'] = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}}';
+          }
+          break;
+
+        case 'Captures_AmazonClosed':
+          if (AmazonLPA::get_capture_mode() == AmazonLPA::CAPTURE_AUTH_CAPTURE) {
+            $params['seller_authorization_note'] = '{"SandboxSimulation": {"State":"Closed", "ReasonCode":"AmazonClosed"}}';
+          }
+          break;
+        case 'Authorizations_ExpiredUnused':
+          $params['seller_authorization_note'] = '{"SandboxSimulation": {"State":"Closed", "ReasonCode":"ExpiredUnused", "ExpirationTimeInMins":1}}';
+          break;
+      }
+      break;
+
+    case 'cancel_order_reference':
+      break;
+
+    case 'capture':
+      switch ($simulation_code) {
+        case 'Captures_Pending':
+          $params['seller_capture_note'] = '{"SandboxSimulation": {"State":"Pending"}}';
+          break;
+
+        case 'Captures_AmazonRejected':
+          $params['seller_capture_note'] = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}}';
+          break;
+
+        case 'Captures_AmazonClosed':
+          $params['seller_capture_note'] = '{"SandboxSimulation": {"State":"Closed", "ReasonCode":"AmazonClosed"}}';
+          break;
+      }
+      break;
+
+    case 'close_authorization':
+      break;
+
+    case 'close_order_reference':
+      switch ($simulation_code) {
+        case 'OrderReference_AmazonClosed':
+          $params['closure_reason'] = '{"SandboxSimulation": {"State":"Closed", "ReasonCode":"AmazonClosed"}}';
+          break;
+      }
+      break;
+
+    case 'confirm_order_reference':
+      break;
+
+    case 'get_capture_details':
+      break;
+
+    case 'get_order_reference':
+      break;
+
+    case 'refund':
+      switch ($simulation_code) {
+        case 'Refund_AmazonRejected':
+          $params['seller_refund_note'] = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}}';
+          break;
+      }
+      break;
+
+    case 'set_order_reference':
+      break;
+  }
+}
+
+/**
+ * Creates a required, locked instance of an "Excluded from Amazon" flag.
+ *
+ * @param $bundle
+ *   The bundle name of the entity the field instance will be attached to.
+ * @param $weight
+ *   The default weight of the field instance widget and display.
+ * @param $display
+ *   An array of default display data used for the entity's current view modes.
+ */
+function commerce_amazon_lpa_restricted_product_create_instance($bundle, $weight = 0, $display = array()) {
+  $field_name = 'commerce_amazon_lpa_restricted';
+  $entity_type = 'commerce_product';
+
+  // Look for or add the specified field to the requested entity bundle.
+  commerce_activate_field($field_name);
+  field_cache_clear();
+
+  $field = field_info_field($field_name);
+  $instance = field_info_instance($entity_type, $field_name, $bundle);
+
+  if (empty($field)) {
+    $field = array(
+      'field_name' => $field_name,
+      'type' => 'list_boolean',
+      'cardinality' => 1,
+      'entity_types' => array($entity_type),
+      'translatable' => FALSE,
+    );
+    $field = field_create_field($field);
+  }
+
+  if (empty($instance)) {
+    $instance = array(
+      'field_name' => $field_name,
+      'entity_type' => $entity_type,
+      'bundle' => $bundle,
+
+      'label' => t('Not available via Amazon Payments'),
+      'settings' => array(),
+      'widget' => array(
+        'type' => 'options_onoff',
+        'weight' => $weight,
+        'settings' => array(
+          'display_label' => 1,
+        ),
+      ),
+
+      'display' => array(),
+    );
+
+    $entity_info = entity_get_info($entity_type);
+
+    // Spoof the default view mode and node teaser so its display type is set.
+    $entity_info['view modes'] += array(
+      'default' => array(),
+      'node_teaser' => array(),
+    );
+
+    foreach ($entity_info['view modes'] as $view_mode => $data) {
+      $instance['display'][$view_mode] = $display + array(
+        'label' => 'hidden',
+        'type' => 'hidden',
+        'weight' => $weight,
+      );
+    }
+
+    field_create_instance($instance);
+  }
+}
+
+/**
+ * Checks if an order has a restricted item, preventing Amazon Payments.
+ * @param $order
+ * @return bool
+ */
+function commerce_amazon_lpa_order_has_restricted_products($order) {
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  foreach ($order_wrapper->commerce_line_items as $commerce_line_item) {
+    if (isset($commerce_line_item->commerce_product)) {
+      if (isset($commerce_line_item->commerce_product->commerce_amazon_lpa_restricted)) {
+        if ($commerce_line_item->commerce_product->commerce_amazon_lpa_restricted->value()) {
+          return TRUE;
+        }
+      }
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Checks if an order is shippable via Amazon Payments.
+ * @param $order
+ * @return bool
+ */
+function commerce_amazon_lpa_order_is_shippable($order) {
+  $is_shippable = FALSE;
+
+  if (module_exists('commerce_shipping')) {
+    $digital_products = variable_get('commerce_amazon_lpa_digital_product_types', array());
+
+    $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+    foreach ($order_wrapper->commerce_line_items as $commerce_line_item) {
+      if (isset($commerce_line_item->commerce_product)) {
+        // If the product bundle is not marked as digital, it is shippable.
+        // Return immediately so further checks do not negate this flag.
+        if (!in_array($commerce_line_item->commerce_product->getBundle(), $digital_products)) {
+          return TRUE;
+        }
+      }
+    }
+  }
+
+  return $is_shippable;
+}
+
+/**
+ * Overrides the Commerce Shipping checkout form pane callback.
+ */
+function commerce_amazon_lpa_commerce_shipping_pane_checkout_form($form, &$form_state, $checkout_pane, $order) {
+  if (commerce_amazon_lpa_order_is_shippable($order)) {
+    return commerce_shipping_pane_checkout_form($form, $form_state, $checkout_pane, $order);
+  }
+  else {
+    $checkout_page = $form_state['checkout_page'];
+    // If there is another checkout page...
+    if ($checkout_page['next_page']) {
+      // Update the order status to reflect the next checkout page.
+      $order = commerce_order_status_update($order, 'checkout_' . $checkout_page['next_page'], FALSE, NULL, t('Order was marked as digital and skipped shipping calculations.'));
+
+      // If it happens to be the complete page, process completion now.
+      if ($checkout_page['next_page'] == 'complete') {
+        commerce_checkout_complete($order);
+      }
+
+      // Redirect to the next checkout page.
+      drupal_goto(commerce_checkout_order_uri($order));
+    }
+  }
+}

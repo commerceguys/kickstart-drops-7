@@ -1,0 +1,8 @@
+{
+  "config": {
+    "bin-dir": "bin/"
+  },
+  "require": {
+    "drupal/drupal-extension": "3.*"
+  }
+}

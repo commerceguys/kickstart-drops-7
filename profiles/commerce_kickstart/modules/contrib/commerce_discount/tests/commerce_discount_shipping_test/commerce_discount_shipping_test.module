@@ -1,0 +1,110 @@
+<?php
+
+/**
+ * @file
+ * Defines an example shipping method for testing and development.
+ */
+
+/**
+ * Implements hook_commerce_shipping_method_info().
+ */
+function commerce_discount_shipping_test_commerce_shipping_method_info() {
+  $shipping_methods = array();
+
+  $shipping_methods['commerce_discount_test_shipping_method'] = array(
+    'title' => t('Discount test shipping method'),
+    'description' => t('Defines 3 shipping services.'),
+  );
+
+  $shipping_methods['commerce_discount_test_other_method'] = array(
+    'title' => t('Discount test other shipping method'),
+    'description' => t('Defines a shipping service.'),
+  );
+
+  return $shipping_methods;
+}
+
+/**
+ * Implements hook_commerce_shipping_service_info().
+ */
+function commerce_discount_shipping_test_commerce_shipping_service_info() {
+  $shipping_services = array();
+
+  $shipping_services['commerce_discount_cheap_shipping'] = array(
+    'title' => t('Cheap shipping service'),
+    'description' => t('A cheap flat rate service.'),
+    'display_title' => t('Cheap shipping'),
+    'shipping_method' => 'commerce_discount_test_shipping_method',
+    'price_component' => 'shipping',
+    'callbacks' => array(
+      'rate' => 'commerce_discount_test_shipping_service_rate',
+    ),
+  );
+
+  $shipping_services['commerce_discount_decent_shipping'] = array(
+    'title' => t('Decent shipping service'),
+    'description' => t('A decent flat rate service.'),
+    'display_title' => t('Decent shipping'),
+    'shipping_method' => 'commerce_discount_test_shipping_method',
+    'price_component' => 'shipping',
+    'callbacks' => array(
+      'rate' => 'commerce_discount_test_shipping_service_rate',
+    ),
+  );
+
+  $shipping_services['commerce_discount_expensive_shipping'] = array(
+    'title' => t('Expensive shipping service'),
+    'description' => t('An expensive flat rate service.'),
+    'display_title' => t('Expensive shipping'),
+    'shipping_method' => 'commerce_discount_test_shipping_method',
+    'price_component' => 'shipping',
+    'callbacks' => array(
+      'rate' => 'commerce_discount_test_shipping_service_rate',
+    ),
+  );
+
+  $shipping_services['commerce_discount_deluxe_shipping'] = array(
+    'title' => t('Deluxe shipping service'),
+    'description' => t('A deluxe flat rate service.'),
+    'display_title' => t('Deluxe shipping'),
+    'shipping_method' => 'commerce_discount_test_other_method',
+    'price_component' => 'shipping',
+    'callbacks' => array(
+      'rate' => 'commerce_discount_test_shipping_service_rate',
+    ),
+  );
+
+  return $shipping_services;
+}
+
+/**
+ * Shipping service callback.
+ *
+ * Returns a base price array for a shipping service
+ * calculated for the given order.
+ */
+function commerce_discount_test_shipping_service_rate($shipping_service, $order) {
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  switch ($shipping_service['name']) {
+    case 'commerce_discount_cheap_shipping':
+      $amount = 500;
+      break;
+
+    case 'commerce_discount_decent_shipping':
+      $amount = 1500;
+      break;
+
+    case 'commerce_discount_expensive_shipping':
+      $amount = 2500;
+      break;
+
+    case 'commerce_discount_deluxe_shipping':
+      $amount = 5500;
+      break;
+  }
+  return array(
+    'amount' => $amount,
+    'currency_code' => $order_wrapper->commerce_order_total->currency_code->value(),
+    'data' => array(),
+  );
+}
