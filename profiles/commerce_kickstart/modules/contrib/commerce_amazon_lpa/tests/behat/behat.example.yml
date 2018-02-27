@@ -1,0 +1,10 @@
+imports:
+    - behat.common.yml
+
+default:
+  extensions:
+    Behat\MinkExtension:
+      base_url: URL
+    Drupal\DrupalExtension:
+      drush:
+        alias: ALIAS

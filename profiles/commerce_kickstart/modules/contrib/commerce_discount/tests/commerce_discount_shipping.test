@@ -1,0 +1,199 @@
+<?php
+
+/**
+ * @file
+ * Commerce Discounts shipping tests.
+ */
+
+/**
+ * Testing commerce shipping discounts functionality.
+ */
+class CommerceDiscountShippingTest extends CommerceDiscountTestBase {
+
+  /**
+   * Implementation of getInfo().
+   */
+  public static function getInfo() {
+    return array(
+      'name' => 'Shipping discounts',
+      'description' => 'Test shipping discounts functionality',
+      'group' => 'Commerce Discount',
+    );
+  }
+
+  /**
+   * @inheritdoc
+   */
+  public function setUp() {
+    parent::setUp();
+    module_enable(array('commerce_discount_shipping_test'));
+    $this->resetAll();
+  }
+
+  /**
+   * Test shipping discount.
+   */
+  public function testCommerceDiscountFreeShippingDiscount() {
+    $shipping_service_name = 'commerce_discount_cheap_shipping';
+    $decent_shipping_service_name = 'commerce_discount_decent_shipping';
+    $expensive_shipping_service_name = 'commerce_discount_expensive_shipping';
+
+    // Create an order.
+    $order = $this->createDummyOrder($this->store_customer->uid, array($this->product->product_id => 1), 'checkout_review', NULL);
+
+    // Check shipping prices shown in checkout.
+    $this->drupalLogin($this->store_customer);
+    $this->drupalGet('checkout/' . $order->order_id . '/shipping');
+    $this->assertText('Cheap shipping: $5.00', t('Cheap shipping price displayed correctly on checkout without a discount.'));
+    $this->assertText('Decent shipping: $15.00', t('Decent shipping price displayed correctly on checkout without a discount.'));
+    $this->assertText('Expensive shipping: $25.00', t('Expensive shipping price displayed correctly on checkout without a discount.'));
+    $this->assertText('Deluxe shipping: $55.00', t('Deluxe shipping price displayed correctly on checkout without a discount.'));
+
+    // Select cheap shipping.
+    $edit = array(
+      'commerce_shipping[shipping_service]' => $shipping_service_name,
+    );
+    $this->drupalPostAJAX(NULL, $edit, 'commerce_shipping[shipping_service]');
+    // Go to next checkout step.
+    $this->drupalPost(NULL, $edit, t('Continue to next step'));
+    $this->assertText('Shipping$5.00', t('Cheap shipping price is correctly displayed on checkout review.'));
+    $this->assertText('Order total$15.00', t('Undiscounted order total with cheap shipping is correctly displayed on checkout review.'));
+
+    // Create a discount.
+    $discount = $this->createDiscount('order_discount', 'free_shipping', $shipping_service_name, 'free_shipping', 'Free cheap shipping');
+    // Go back to shipping checkout step.
+    $this->drupalPost(NULL, array(), t('Go back'));
+    $this->assertText('Cheap shipping: $0.00', t('Cheap shipping price displayed correctly on checkout shipping with a cheap discount.'));
+    $this->assertText('Decent shipping: $15.00', t('Decent shipping price displayed correctly on checkout shipping with a cheap discount.'));
+    $this->assertText('Expensive shipping: $25.00', t('Expensive shipping price displayed correctly on checkout shipping with a cheap discount.'));
+    $this->assertText('Deluxe shipping: $55.00', t('Deluxe shipping price displayed correctly on checkout shipping with a cheap discount.'));
+    // Go to next checkout step.
+    $this->drupalPost(NULL, $edit, t('Continue to next step'));
+    $this->assertText('Shipping$5.00', t('Cheap shipping price is correctly displayed on checkout review.'));
+    $this->assertText('Free cheap shipping-$5.00', t('Free cheap shipping discount amount is correctly displayed on checkout review.'));
+    $this->assertText('Order total$10.00', t('Order total with free cheap shipping discount is correctly displayed on checkout review.'));
+
+    $this->drupalPost(NULL, array(), t('Go back'));
+    // Select decent shipping.
+    $edit = array(
+      'commerce_shipping[shipping_service]' => $decent_shipping_service_name,
+    );
+    $this->drupalPostAJAX(NULL, $edit, 'commerce_shipping[shipping_service]');
+    // Go to next checkout step.
+    $this->drupalPost(NULL, $edit, t('Continue to next step'));
+    $this->assertText('Shipping$15.00', t('Decent shipping price is correctly displayed.'));
+    $this->assertText('Order total$25.00', t('Undiscounted order total with decent shipping and with unapplied cheap shipping discount is correctly displayed.'));
+
+    // Update discount to have a 'discount_all' strategy.
+    $discount_wrapper = entity_metadata_wrapper('commerce_discount', $discount);
+    $discount_wrapper->commerce_discount_offer->commerce_free_shipping_strategy = 'discount_all';
+    $discount_wrapper->commerce_discount_offer->save();
+
+    $this->drupalPost(NULL, array(), t('Go back'));
+    $this->assertText('Cheap shipping: $0.00', t('Cheap shipping price displayed correctly on checkout shipping with a cheap discount with discount_all strategy.'));
+    $this->assertText('Decent shipping: $10.00', t('Decent shipping price displayed correctly on checkout shipping with a cheap discount with discount_all strategy.'));
+    $this->assertText('Expensive shipping: $20.00', t('Expensive shipping price displayed correctly on checkout shipping with a cheap discount with discount_all strategy.'));
+    $this->assertText('Deluxe shipping: $50.00', t('Deluxe shipping price displayed correctly on checkout shipping with a cheap discount with discount_all strategy.'));
+
+    // Select expensive shipping.
+    $edit = array(
+      'commerce_shipping[shipping_service]' => $expensive_shipping_service_name,
+    );
+    $this->drupalPostAJAX(NULL, $edit, 'commerce_shipping[shipping_service]');
+    // Go to next checkout step.
+    $this->drupalPost(NULL, $edit, t('Continue to next step'));
+    $this->assertText('Shipping$25.00', t('Expensive shipping price is correctly displayed on checkout review.'));
+    $this->assertText('Free cheap shipping-$5.00', t('Discount amount on expensive shipping is correctly displayed in case of a discount_all cheap shipping on checkout review.'));
+    $this->assertText('Order total$30.00', t('Undiscounted order total with decent shipping and with unapplied discounted cheap shipping is correctly displayed on checkout review.'));
+
+    // Remove discount.
+    entity_delete('commerce_discount', $discount->discount_id);
+
+    // Create discount for the expensive shipping method with 'discount_all' strategy.
+    $discount = $this->createDiscount('order_discount', 'free_shipping', $expensive_shipping_service_name, 'free_shipping', 'Free expensive shipping');
+    $discount_wrapper = entity_metadata_wrapper('commerce_discount', $discount);
+    $discount_wrapper->commerce_discount_offer->commerce_free_shipping_strategy = 'discount_all';
+    $discount_wrapper->commerce_discount_offer->save();
+
+    $this->drupalPost(NULL, array(), t('Go back'));
+    $this->assertText('Cheap shipping: $0.00', t('Cheap shipping price displayed correctly on checkout shipping with an expensive discount with discount_all strategy.'));
+    $this->assertText('Decent shipping: $0.00', t('Decent shipping price displayed correctly on checkout shipping with an expensive discount with discount_all strategy.'));
+    $this->assertText('Expensive shipping: $0.00', t('Expensive shipping price displayed correctly on checkout shipping with an expensive discount with discount_all strategy.'));
+    $this->assertText('Deluxe shipping: $30.00', t('Deluxe shipping price displayed correctly on checkout shipping with an expensive discount with discount_all strategy.'));
+
+    // Select expensive shipping.
+    $edit = array(
+      'commerce_shipping[shipping_service]' => 'commerce_discount_deluxe_shipping',
+    );
+    $this->drupalPostAJAX(NULL, $edit, 'commerce_shipping[shipping_service]');
+    // Go to next checkout step.
+    $this->drupalPost(NULL, $edit, t('Continue to next step'));
+    $this->assertText('Shipping$55.00', t('Deluxe shipping price is correctly displayed on checkout review.'));
+    $this->assertText('Free expensive shipping-$25.00', t('Discount amount on deluxe shipping is correctly displayed in case of a discount_all expensive shipping on checkout review.'));
+    $this->assertText('Order total$40.00', t('Order total with deluxe shipping and with discounted expensive shipping discount is correctly displayed on checkout review.'));
+
+    // Remove discount.
+    entity_delete('commerce_discount', $discount->discount_id);
+
+    // Create a free cheap shipping discount with discount_all strategy.
+    $discount = $this->createDiscount('order_discount', 'free_shipping', $shipping_service_name, 'free_shipping', 'Free cheap shipping');
+    $discount_wrapper = entity_metadata_wrapper('commerce_discount', $discount);
+    $discount_wrapper->commerce_discount_offer->commerce_free_shipping_strategy = 'discount_all';
+    $discount_wrapper->commerce_discount_offer->save();
+
+    // Create a 20% percent off shipping discount.
+    $offer = array(
+      'percent' => 20,
+      'service' => '',
+    );
+    $percent_discount = $this->createDiscount('order_discount', 'percent_off_shipping', $offer, 'percent_off_shipping', '20% off shipping');
+    $percent_discount->sort_order = 9;
+
+    $this->drupalPost(NULL, array(), t('Go back'));
+    $this->assertText('Cheap shipping: $0.00', t('Cheap shipping price displayed correctly on checkout shipping with an expensive discount with discount_all strategy.'));
+    $this->assertText('Decent shipping: $8.00', t('Decent shipping price displayed correctly on checkout shipping with an expensive discount with discount_all strategy.'));
+    $this->assertText('Expensive shipping: $16.00', t('Expensive shipping price displayed correctly on checkout shipping with an expensive discount with discount_all strategy.'));
+    $this->assertText('Deluxe shipping: $40.00', t('Deluxe shipping price displayed correctly on checkout shipping with an expensive discount with discount_all strategy.'));
+
+    // Select expensive shipping.
+    $edit = array(
+      'commerce_shipping[shipping_service]' => 'commerce_discount_deluxe_shipping',
+    );
+    $this->drupalPostAJAX(NULL, $edit, 'commerce_shipping[shipping_service]');
+    // Go to next checkout step.
+    $this->drupalPost(NULL, $edit, t('Continue to next step'));
+    $this->assertText('Shipping$55.00', t('Deluxe shipping price is correctly displayed on checkout review.'));
+    $this->assertText('Free cheap shipping-$5.00', t('Discount amount on deluxe shipping is correctly displayed in case of a discount_all cheap shipping discount on checkout review.'));
+    $this->assertText('20% off shipping-$10.00', t('Discount amount on deluxe shipping is correctly displayed in case of an "all" 20% shipping discount on checkout review.'));
+    $this->assertText('Order total$50.00', t('Order total with deluxe shipping and with a discount_all cheap shipping discount and a 20% "all" shipping discount is correctly displayed on checkout review.'));
+
+    // Remove free shipping discount.
+    entity_delete('commerce_discount', $discount->discount_id);
+
+    // Create shipping upgrade discount.
+    $offer = array(
+      'source' => $shipping_service_name,
+      'target' => $expensive_shipping_service_name,
+    );
+    $percent_discount = $this->createDiscount('order_discount', 'shipping_upgrade', $offer, 'shipping_upgrade', 'Shipping upgrade');
+
+    $this->drupalPost(NULL, array(), t('Go back'));
+    $this->assertText('Cheap shipping: $4.00', t('Cheap shipping price displayed correctly on checkout shipping with a 20% "all" shipping discount and a cheap->expensive upgrade discount.'));
+    $this->assertText('Decent shipping: $12.00', t('Decent shipping price displayed correctly on checkout shipping with a 20% "all" shipping discount and a cheap->expensive upgrade discount.'));
+    $this->assertText('Expensive shipping: $4.00', t('Expensive shipping price displayed correctly on checkout shipping with a 20% "all" shipping discount and a cheap->expensive upgrade discount.'));
+    $this->assertText('Deluxe shipping: $44.00', t('Deluxe shipping price displayed correctly on checkout shipping with a 20% "all" shipping discount and a cheap->expensive upgrade discount.'));
+
+    // Select expensive shipping.
+    $edit = array(
+      'commerce_shipping[shipping_service]' => $expensive_shipping_service_name,
+    );
+    $this->drupalPostAJAX(NULL, $edit, 'commerce_shipping[shipping_service]');
+    // Go to next checkout step.
+    $this->drupalPost(NULL, $edit, t('Continue to next step'));
+    $this->assertText('Shipping$25.00', t('Expensive shipping price is correctly displayed on checkout review with a 20% "all" shipping discount and a cheap->expensive upgrade discount.'));
+    $this->assertText('Shipping upgrade-$16.00', t('Discount amount on expensive shipping is correctly displayed in case of cheap->expensive upgrade discount on checkout review.'));
+    $this->assertText('20% off shipping-$5.00', t('20% off discount amount on expensive shipping is correctly displayed on checkout review.'));
+    $this->assertText('Order total$14.00', t('Order total with deluxe shipping and with a 20% "all" shipping discount and a cheap->expensive upgrade discount is correctly displayed on checkout review.'));
+  }
+
+}

@@ -1,0 +1,176 @@
+<?php
+
+/**
+ * @file
+ * Module install file.
+ */
+
+/**
+ * Implements hook_requirements().
+ */
+function commerce_amazon_lpa_requirements($phase) {
+  $requirements = array();
+  if ($phase == 'runtime') {
+    $t = get_t();
+
+    $library = libraries_detect('amazon-pay-sdk-php');
+    if ($library['installed'] === TRUE) {
+      $requirements['commerce_amazon_lpa'] = array(
+        'value' => $library['version'],
+        'severity' => REQUIREMENT_OK,
+      );
+    }
+    else {
+      $library = libraries_detect('login-and-pay-with-amazon-sdk-php');
+      if ($library['installed'] === TRUE) {
+        $requirements['commerce_amazon_lpa'] = array(
+          'value' => $library['version'],
+          'severity' => REQUIREMENT_WARNING,
+          'description' => $t('Currently @version is installed, upgrade to latest version <a href="https://github.com/amzn/amazon-pay-sdk-php/releases">https://github.com/amzn/amazon-pay-sdk-php/releases.</a>', array('@version' => $library['version'])),
+        );
+      }
+      else {
+        $requirements['commerce_amazon_lpa'] = array(
+          'value' => $t('Missing'),
+          'severity' => REQUIREMENT_ERROR,
+          'description' => $t('Login and Pay Amazon SDK library missing. Download the library from <a href="@url">https://github.com/amzn/amazon-pay-sdk-php</a> and place it in to sites/all/libraries/amazon-pay-sdk-php', array('@url' => 'https://github.com/amzn/amazon-pay-sdk-php')),
+        );
+      }
+    }
+    $requirements['commerce_amazon_lpa']['title'] = $t('Amazon Payments PHP SDK');
+
+    // Check for Commerce currency.
+    if (in_array(commerce_default_currency(), array_values(AmazonLPA::get_region_currency_code()))) {
+      $requirements['commerce_amazon_lpa_currency'] = array(
+        'value' => $t('Valid currency'),
+        'severity' => REQUIREMENT_OK,
+      );
+    }
+    else {
+      $requirements['commerce_amazon_lpa_currency'] = array(
+        'value' => $t('Invalid default currency!'),
+        'severity' => REQUIREMENT_ERROR,
+        'description' => $t('Amazon Payments currently supports only EUR, GBP, USD as a currency.'),
+      );
+    }
+    $requirements['commerce_amazon_lpa_currency']['title'] = $t('Amazon Payments currency check');
+
+    if (!function_exists('curl_init')) {
+      $requirements['commerce_amazon_lpa_curl'] += array(
+        'title' => $t('cURL'),
+        'value' => $t('Not found'),
+        'severity' => REQUIREMENT_ERROR,
+        'description' => $t("Amazon Pay and Login with Amazon requires the PHP <a href='!curl_url'>cURL</a> library.", array('!curl_url' => 'http://php.net/manual/en/curl.setup.php')),
+      );
+    }
+  }
+  return $requirements;
+}
+
+/**
+ * Implements hook_enable().
+ */
+function commerce_amazon_lpa_enable() {
+  // Add Amazon Payment eligibility field to product types.
+  $bundles = field_info_bundles('commerce_product');
+  foreach ($bundles as $name => $properties) {
+    commerce_amazon_lpa_restricted_product_create_instance($name);
+  }
+
+  // Add Amazon Order ID field to each order bundle.
+  $bundles = field_info_bundles('commerce_order');
+  foreach ($bundles as $name => $properties) {
+    $field_name = 'commerce_amazon_lpa_order_id';
+    $field = field_info_field($field_name);
+    if (empty($field)) {
+      $field = array(
+        'field_name' => $field_name,
+        'cardinality' => 1,
+        'locked' => 1,
+        'type' => 'text',
+        'translatable' => FALSE,
+      );
+      field_create_field($field);
+    }
+
+    $instance = field_info_instance('commerce_order', $field_name, $name);
+    if (empty($instance)) {
+      $instance = array(
+        'field_name' => $field_name,
+        'entity_type' => 'commerce_order',
+        'bundle' => $name,
+        'label' => t('Amazon Order ID'),
+        'settings' => array(),
+      );
+
+      foreach (array('default', 'customer', 'administrator') as $view_mode) {
+        $instance['display'][$view_mode] = array(
+          'label' => 'hidden',
+          'type' => 'hidden',
+        );
+      }
+
+      field_create_instance($instance);
+    }
+  }
+
+  // Create Amazon User ID field on users.
+  $bundles = field_info_bundles('user');
+  foreach ($bundles as $name => $properties) {
+    $field_name = 'commerce_amazon_lpa_user_id';
+    $field = field_info_field($field_name);
+    if (empty($field)) {
+      $field = array(
+        'field_name' => $field_name,
+        'cardinality' => 1,
+        'locked' => 1,
+        'type' => 'text',
+        'translatable' => FALSE,
+      );
+      field_create_field($field);
+    }
+
+    $instance = field_info_instance('user', $field_name, $name);
+    if (empty($instance)) {
+      $instance = array(
+        'field_name' => $field_name,
+        'entity_type' => 'user',
+        'bundle' => $name,
+        'label' => t('Amazon User ID'),
+        'settings' => array(),
+      );
+
+      foreach (array('default') as $view_mode) {
+        $instance['display'][$view_mode] = array(
+          'label' => 'hidden',
+          'type' => 'hidden',
+        );
+      }
+
+      field_create_instance($instance);
+    }
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function commerce_amazon_lpa_uninstall() {
+  $variables = array();
+  foreach ($variables as $variable) {
+    variable_del($variable);
+  }
+  $bundles = field_info_bundles('commerce_order');
+  foreach ($bundles as $name => $properties) {
+    $instance = field_info_instance('commerce_order', 'commerce_amazon_lpa_order_id', $name);
+    commerce_delete_instance($instance);
+  }
+  commerce_delete_field('commerce_amazon_lpa_order_id');
+
+  $bundles = field_info_bundles('user');
+  foreach ($bundles as $name => $properties) {
+    $instance = field_info_instance('user', 'commerce_amazon_lpa_user_id', $name);
+    commerce_delete_instance($instance);
+  }
+  commerce_delete_field('commerce_amazon_lpa_user_id');
+}
