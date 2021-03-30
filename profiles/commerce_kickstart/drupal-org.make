@@ -5,12 +5,12 @@ api = 2
 defaults[projects][subdir] = contrib
 
 ; Basic contributed modules.
-projects[ctools][version] = 1.15
+projects[ctools][version] = 1.19
 projects[entity][version] = 1.9
 projects[entityreference][version] = 1.5
 projects[rules][version] = 2.12
-projects[views][version] = 3.23
-projects[views_bulk_operations][version] = 3.5
+projects[views][version] = 3.24
+projects[views_bulk_operations][version] = 3.6
 projects[addressfield][version] = 1.3
 projects[features][version] = 2.11
 projects[features][patch][2143765] = "http://drupal.org/files/issues/features-fix-modules-enabled-2143765-1.patch"
@@ -124,7 +124,7 @@ projects[distro_update][version] = 1.0-beta4
 
 ; Internationalization
 projects[variable][version] = 2.5
-projects[i18n][version] = 1.26
+projects[i18n][version] = 1.27
 projects[lingotek][version] = 7.33
 
 ; Base theme.
